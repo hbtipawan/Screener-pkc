@@ -199,6 +199,28 @@ if run_scan:
         # Sort data exactly like the engine
         df_sorted = df.sort_values(["gate_count", "pct_near_52w"], ascending=[False, False])
         
+        # -----------------------------------------------------------
+        # NEW CODE: Create TradingView Links for the Web UI
+        # -----------------------------------------------------------
+        # We create a display copy so the downloaded CSV keeps the plain text symbol
+        df_ui = df_sorted.copy()
+        
+        if market_choice == "NSE Stocks":
+            # Add NSE prefix for Indian stocks
+            df_ui["symbol"] = "https://in.tradingview.com/chart/?symbol=NSE:" + df_ui["symbol"]
+        else:
+            # Standard URL for US Stocks and ETFs
+            df_ui["symbol"] = "https://www.tradingview.com/chart/?symbol=" + df_ui["symbol"]
+
+        # Configure the symbol column to act as a link, but use Regex to only display the ticker text
+        tv_config = {
+            "symbol": st.column_config.LinkColumn(
+                "Symbol",
+                display_text=r".*symbol=(?:NSE:)?(.*)"
+            )
+        }
+        # -----------------------------------------------------------
+
         st.success(f"Scan complete! Found {len(df_sorted)} candidates.")
 
         # Create interactive web tabs for your categories
@@ -206,24 +228,24 @@ if run_scan:
         
         with tab1:
             st.subheader("Fresh Buy Signals (Latest Candle)")
-            fresh_df = df_sorted[df_sorted["status"].isin(["🔥 FRESH BUY", "🔥 FRESH EXT"])]
-            st.dataframe(fresh_df, use_container_width=True)
+            fresh_df = df_ui[df_ui["status"].isin(["🔥 FRESH BUY", "🔥 FRESH EXT"])]
+            st.dataframe(fresh_df, use_container_width=True, column_config=tv_config)
 
         with tab2:
             st.subheader("Buyable (All 7 Gates Passed)")
-            buyable_df = df_sorted[df_sorted["status"] == "★ BUYABLE (7/7)"]
-            st.dataframe(buyable_df, use_container_width=True)
+            buyable_df = df_ui[df_ui["status"] == "★ BUYABLE (7/7)"]
+            st.dataframe(buyable_df, use_container_width=True, column_config=tv_config)
 
         with tab3:
             st.subheader("Watchlist / Relaxed")
-            watch_df = df_sorted[df_sorted["status"].isin(["★ RELAXED (6/7)", "◉ WATCHLIST (6/7)"])]
-            st.dataframe(watch_df, use_container_width=True)
+            watch_df = df_ui[df_ui["status"].isin(["★ RELAXED (6/7)", "◉ WATCHLIST (6/7)"])]
+            st.dataframe(watch_df, use_container_width=True, column_config=tv_config)
 
         with tab4:
             st.subheader("Full Screener Output")
-            st.dataframe(df_sorted, use_container_width=True)
+            st.dataframe(df_ui, use_container_width=True, column_config=tv_config)
         
-        # Download Button
+        # Download Button (Uses original df_sorted so URLs aren't in the CSV)
         csv = df_sorted.to_csv(index=False).encode('utf-8')
         st.download_button(
             label="Download Full Results as CSV",
@@ -233,3 +255,7 @@ if run_scan:
         )
     else:
         st.warning("No stocks passed the screener criteria.")
+        
+    if failed:
+        with st.expander("View Failed Symbols"):
+            st.write(", ".join(failed))
