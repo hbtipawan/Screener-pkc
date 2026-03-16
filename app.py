@@ -100,6 +100,9 @@ def fetch_etf_symbols(min_price):
 # -------------------------------------------------------------------
 # Processing Worker
 # -------------------------------------------------------------------
+# -------------------------------------------------------------------
+# Processing Worker
+# -------------------------------------------------------------------
 def process_symbol(symbol, params, market_type):
     if market_type == "NSE":
         yf_sym = f"{symbol}.NS"
@@ -114,16 +117,31 @@ def process_symbol(symbol, params, market_type):
     
     # Inject Market Cap into the result dictionary
     if result:
+        mcap = 0
         try:
-            # fast_info is significantly faster than .info
-            mcap = yf.Ticker(yf_sym).fast_info.get('marketCap', 0)
-        except:
-            mcap = 0
+            ticker_obj = yf.Ticker(yf_sym)
+            # Correct property syntax for newer yfinance versions
+            mcap = ticker_obj.fast_info.market_cap
+        except AttributeError:
+            try:
+                # Fallback 1: Dictionary access for slightly older versions
+                mcap = ticker_obj.fast_info['marketCap']
+            except:
+                pass
+        except Exception:
+            pass
+            
+        # Fallback 2: The classic info dictionary if fast_info fails entirely
+        if not mcap:
+            try:
+                mcap = ticker_obj.info.get('marketCap', 0)
+            except:
+                mcap = 0
+
         result['raw_mcap'] = mcap
         result['market_type'] = market_type
         
     return result
-
 # -------------------------------------------------------------------
 # Sidebar UI controls
 # -------------------------------------------------------------------
