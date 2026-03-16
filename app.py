@@ -106,10 +106,23 @@ def process_symbol(symbol, params, market_type):
         av_sym = f"{symbol}.BSE"
         df = fetch_weekly_data(yf_sym, av_symbol=av_sym, av_key=params.get("av_key","demo"))
     else:
+        yf_sym = symbol
         df = fetch_weekly_data(symbol)
         
     if df is None: return None
-    return analyze_stock_v3(symbol, df, params)
+    result = analyze_stock_v3(symbol, df, params)
+    
+    # Inject Market Cap into the result dictionary
+    if result:
+        try:
+            # fast_info is significantly faster than .info
+            mcap = yf.Ticker(yf_sym).fast_info.get('marketCap', 0)
+        except:
+            mcap = 0
+        result['raw_mcap'] = mcap
+        result['market_type'] = market_type
+        
+    return result
 
 # -------------------------------------------------------------------
 # Sidebar UI controls
@@ -179,40 +192,73 @@ if run_scan:
 
     status_text.text(f"Scan complete! Analyzed: {len(results)} | Failed: {len(failed)}")
 
-    # # 3. Display Results
+    # 3. Display Results
     if results:
         df = pd.DataFrame(results)
         
-        # Apply your custom status labels
+        # Format Market Cap function
+        def format_mcap(mcap, market_type):
+            if not mcap or mcap == 0 or pd.isna(mcap):
+                return "N/A"
+            
+            if market_type == "NSE":
+                # Convert raw INR to Crores (1 Crore = 10,000,000)
+                crores = mcap / 10000000
+                if crores >= 1000:
+                    val = crores / 1000
+                    return f"{val:.1f}K crore inr".replace(".0K", "K")
+                else:
+                    return f"{crores:.0f} crore inr"
+            else:
+                # Format for US Markets
+                if mcap >= 1e9:
+                    val = mcap / 1e9
+                    return f"${val:.1f}B".replace(".0B", "B")
+                else:
+                    return f"${mcap / 1e6:.1f}M"
+
+        # Apply formatting
+        df["Market Cap"] = df.apply(lambda row: format_mcap(row.get("raw_mcap", 0), row.get("market_type", "NSE")), axis=1)
+
+        # Apply custom status labels
         def status_label(row):
             if row.get("fresh_signal"):      return "🔥 FRESH BUY"
             if row.get("fresh_ext_signal"):  return "🔥 FRESH EXT"
-            if row["full_entry"]:            return "★ BUYABLE (7/7)"
-            if row["gates_ready_ext"]:       return "⚡ 7/7 EXTENDED"
+            if row.get("full_entry"):        return "★ BUYABLE (7/7)"
+            if row.get("gates_ready_ext"):   return "⚡ 7/7 EXTENDED"
             if row.get("relaxed_entry"):     return "★ RELAXED (6/7)"
-            if row["gate_count"] >= 6 and row["tier1_pass"]: return "◉ WATCHLIST (6/7)"
-            if row["gate_count"] >= 5:       return "▲ MOMENTUM (5+)"
+            if row.get("gate_count", 0) >= 6 and row.get("tier1_pass"): return "◉ WATCHLIST (6/7)"
+            if row.get("gate_count", 0) >= 5: return "▲ MOMENTUM (5+)"
             return "Other"
 
         df["status"] = df.apply(status_label, axis=1)
         
-        # Sort data exactly like the engine
+        # Sort data
         df_sorted = df.sort_values(["gate_count", "pct_near_52w"], ascending=[False, False])
         
         # -----------------------------------------------------------
-        # NEW CODE: Create TradingView Links for the Web UI
+        # Create UI Copy and Reorder Columns
         # -----------------------------------------------------------
-        # We create a display copy so the downloaded CSV keeps the plain text symbol
         df_ui = df_sorted.copy()
         
+        # Reorder to put 'Market Cap' directly after 'symbol'
+        cols = list(df_ui.columns)
+        if "Market Cap" in cols:
+            cols.remove("Market Cap")
+            symbol_idx = cols.index("symbol") if "symbol" in cols else 0
+            cols.insert(symbol_idx + 1, "Market Cap")
+            df_ui = df_ui[cols]
+            
+        # Clean up backend columns so they don't show on the screen
+        if "raw_mcap" in df_ui.columns: df_ui = df_ui.drop(columns=["raw_mcap"])
+        if "market_type" in df_ui.columns: df_ui = df_ui.drop(columns=["market_type"])
+        
+        # Create TradingView Links
         if market_choice == "NSE Stocks":
-            # Add NSE prefix for Indian stocks
             df_ui["symbol"] = "https://in.tradingview.com/chart/?symbol=NSE:" + df_ui["symbol"]
         else:
-            # Standard URL for US Stocks and ETFs
             df_ui["symbol"] = "https://www.tradingview.com/chart/?symbol=" + df_ui["symbol"]
 
-        # Configure the symbol column to act as a link, but use Regex to only display the ticker text
         tv_config = {
             "symbol": st.column_config.LinkColumn(
                 "Symbol",
@@ -223,7 +269,6 @@ if run_scan:
 
         st.success(f"Scan complete! Found {len(df_sorted)} candidates.")
 
-        # Create interactive web tabs for your categories
         tab1, tab2, tab3, tab4 = st.tabs(["🔥 Fresh Signals", "★ Buyable (7/7)", "◉ Watchlist (6/7)", "All Results"])
         
         with tab1:
@@ -245,7 +290,10 @@ if run_scan:
             st.subheader("Full Screener Output")
             st.dataframe(df_ui, use_container_width=True, column_config=tv_config)
         
-        # Download Button (Uses original df_sorted so URLs aren't in the CSV)
+        # Download Button (clean data without URLs for CSV)
+        if "raw_mcap" in df_sorted.columns: df_sorted = df_sorted.drop(columns=["raw_mcap"])
+        if "market_type" in df_sorted.columns: df_sorted = df_sorted.drop(columns=["market_type"])
+        
         csv = df_sorted.to_csv(index=False).encode('utf-8')
         st.download_button(
             label="Download Full Results as CSV",
