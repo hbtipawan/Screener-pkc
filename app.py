@@ -109,11 +109,10 @@ def process_symbol(symbol, params, market_type):
         av_sym = f"{symbol}.BSE"
         df = fetch_weekly_data(yf_sym, av_symbol=av_sym, av_key=params.get("av_key","demo"))
     else:
-        yf_sym = symbol
         df = fetch_weekly_data(symbol)
         
     if df is None: return None
-    result = analyze_stock_v3(symbol, df, params)
+    return analyze_stock_v3(symbol, df, params)
     
     # Inject Market Cap into the result dictionary
     if result:
@@ -214,30 +213,6 @@ if run_scan:
     if results:
         df = pd.DataFrame(results)
         
-        # Format Market Cap function
-        def format_mcap(mcap, market_type):
-            if not mcap or mcap == 0 or pd.isna(mcap):
-                return "N/A"
-            
-            if market_type == "NSE":
-                # Convert raw INR to Crores (1 Crore = 10,000,000)
-                crores = mcap / 10000000
-                if crores >= 1000:
-                    val = crores / 1000
-                    return f"{val:.1f}K crore inr".replace(".0K", "K")
-                else:
-                    return f"{crores:.0f} crore inr"
-            else:
-                # Format for US Markets
-                if mcap >= 1e9:
-                    val = mcap / 1e9
-                    return f"${val:.1f}B".replace(".0B", "B")
-                else:
-                    return f"${mcap / 1e6:.1f}M"
-
-        # Apply formatting
-        df["Market Cap"] = df.apply(lambda row: format_mcap(row.get("raw_mcap", 0), row.get("market_type", "NSE")), axis=1)
-
         # Apply custom status labels
         def status_label(row):
             if row.get("fresh_signal"):      return "🔥 FRESH BUY"
@@ -255,6 +230,53 @@ if run_scan:
         df_sorted = df.sort_values(["gate_count", "pct_near_52w"], ascending=[False, False])
         
         # -----------------------------------------------------------
+        # SMART MARKET CAP FETCHER (Bypasses Yahoo Rate Limits)
+        # -----------------------------------------------------------
+        # Fetch only for stocks passing >= 5 gates to avoid IP ban
+        top_symbols = df_sorted[df_sorted["gate_count"] >= 5]["symbol"].tolist()
+        mcap_dict = {}
+
+        if top_symbols:
+            with st.spinner(f"Fetching Market Cap for the top {len(top_symbols)} candidates..."):
+                def fetch_mcap(sym):
+                    try:
+                        import yfinance as yf
+                        yf_sym = f"{sym}.NS" if market_choice == "NSE Stocks" else sym
+                        tkr = yf.Ticker(yf_sym)
+                        # Bulletproof extraction across all yfinance versions
+                        try: return sym, tkr.fast_info['marketCap']
+                        except:
+                            try: return sym, tkr.fast_info.market_cap
+                            except: return sym, tkr.info.get('marketCap', 0)
+                    except:
+                        return sym, 0
+
+                # Max 5 workers is safe for Yahoo Finance metadata endpoints
+                with ThreadPoolExecutor(max_workers=5) as executor:
+                    for future in as_completed([executor.submit(fetch_mcap, s) for s in top_symbols]):
+                        sym, mval = future.result()
+                        mcap_dict[sym] = mval
+
+        # Map back to dataframe (stocks with <5 gates will remain 0 and show N/A)
+        df_sorted['raw_mcap'] = df_sorted['symbol'].map(mcap_dict).fillna(0)
+
+        # Format Market Cap
+        def format_mcap(mcap):
+            if not mcap or mcap == 0:
+                return "N/A"
+            if market_choice == "NSE Stocks":
+                crores = mcap / 10000000
+                if crores >= 1000:
+                    return f"{crores / 1000:.1f}K crore inr".replace(".0K", "K")
+                return f"{crores:.0f} crore inr"
+            else:
+                if mcap >= 1e9:
+                    return f"${mcap / 1e9:.1f}B".replace(".0B", "B")
+                return f"${mcap / 1e6:.1f}M"
+
+        df_sorted["Market Cap"] = df_sorted["raw_mcap"].apply(format_mcap)
+
+        # -----------------------------------------------------------
         # Create UI Copy and Reorder Columns
         # -----------------------------------------------------------
         df_ui = df_sorted.copy()
@@ -269,7 +291,6 @@ if run_scan:
             
         # Clean up backend columns so they don't show on the screen
         if "raw_mcap" in df_ui.columns: df_ui = df_ui.drop(columns=["raw_mcap"])
-        if "market_type" in df_ui.columns: df_ui = df_ui.drop(columns=["market_type"])
         
         # Create TradingView Links
         if market_choice == "NSE Stocks":
@@ -310,7 +331,6 @@ if run_scan:
         
         # Download Button (clean data without URLs for CSV)
         if "raw_mcap" in df_sorted.columns: df_sorted = df_sorted.drop(columns=["raw_mcap"])
-        if "market_type" in df_sorted.columns: df_sorted = df_sorted.drop(columns=["market_type"])
         
         csv = df_sorted.to_csv(index=False).encode('utf-8')
         st.download_button(
