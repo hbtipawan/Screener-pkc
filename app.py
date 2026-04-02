@@ -18,35 +18,27 @@ st.title("VPCI Investor v3 — Weekly Market Screener")
 # -------------------------------------------------------------------
 # Data Fetching Functions (Cached to avoid repeated API calls)
 # -------------------------------------------------------------------
-@st.cache_data(ttl=3600)
+@st.cache_data
 def get_nse_stock_tickers():
-    url = "https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv"
-    
-    # We are adding heavy browser disguises here to bypass the NSE cloud block
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Referer": "https://www.nseindia.com/"
-    }
-    
     try:
-        r = requests.get(url, headers=headers, timeout=15)
-        if r.status_code == 200:
-            df = pd.read_csv(io.StringIO(r.text))
-            df.columns = [str(c).strip().replace(" ", "_") for c in df.columns]
-            if "SERIES" in df.columns:
-                df = df[df["SERIES"] == "EQ"]
-            return [str(t).strip() for t in df["SYMBOL"].tolist()]
-    except Exception:
-        pass
+        # Read the list directly from the local file in your GitHub repo!
+        df = pd.read_csv("EQUITY_L.csv")
         
-    # Fallback
-    return ["RELIANCE","TCS","HDFCBANK","INFY","ICICIBANK","HINDUNILVR","SBIN",
-            "BHARTIARTL","ITC","KOTAKBANK","LT","AXISBANK","MARUTI","SUNPHARMA",
-            "TITAN","BAJFINANCE","WIPRO","NESTLEIND","HCLTECH","NTPC","POWERGRID",
-            "ADANIENT","COALINDIA","TATASTEEL","JSWSTEEL","HAL","BEL","TRENT",
-            "POLYCAB","PERSISTENT","DIXON","TATAPOWER","IRCTC","PETRONET"]
+        # Clean the columns and filter for standard equities (EQ)
+        df.columns = [str(c).strip().replace(" ", "_") for c in df.columns]
+        if "SERIES" in df.columns:
+            df = df[df["SERIES"] == "EQ"]
+            
+        tickers = [str(t).strip() for t in df["SYMBOL"].tolist()]
+        return tickers
+        
+    except Exception as e:
+        # Fallback just in case the file gets deleted
+        return ["RELIANCE","TCS","HDFCBANK","INFY","ICICIBANK","HINDUNILVR","SBIN",
+                "BHARTIARTL","ITC","KOTAKBANK","LT","AXISBANK","MARUTI","SUNPHARMA",
+                "TITAN","BAJFINANCE","WIPRO","NESTLEIND","HCLTECH","NTPC","POWERGRID",
+                "ADANIENT","COALINDIA","TATASTEEL","JSWSTEEL","HAL","BEL","TRENT",
+                "POLYCAB","PERSISTENT","DIXON","TATAPOWER","IRCTC","PETRONET"]
 
 @st.cache_data(ttl=3600)
 def fetch_us_symbols(min_price, min_mcap):
