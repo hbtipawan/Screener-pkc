@@ -40,62 +40,70 @@ def get_nse_stock_tickers():
                 "ADANIENT","COALINDIA","TATASTEEL","JSWSTEEL","HAL","BEL","TRENT",
                 "POLYCAB","PERSISTENT","DIXON","TATAPOWER","IRCTC","PETRONET"]
 
-@st.cache_data(ttl=3600)
+@st.cache_data
 def fetch_us_symbols(min_price, min_mcap):
-    headers = {"User-Agent": "Mozilla/5.0"}
-    symbols = []
-    offset, limit = 0, 500
     try:
-        url = "https://api.nasdaq.com/api/screener/stocks?tableonly=true&limit=1&offset=0"
-        r = requests.get(url, headers=headers, timeout=30)
-        total = r.json().get("data", {}).get("totalrecords", 0)
-
-        while offset < total:
-            url = f"https://api.nasdaq.com/api/screener/stocks?tableonly=true&limit={limit}&offset={offset}"
-            r = requests.get(url, headers=headers, timeout=30)
-            rows = r.json().get("data", {}).get("table", {}).get("rows", [])
-            if not rows: break
-            for row in rows:
-                sym = row.get("symbol", "").strip()
-                if not sym or "/" in sym or "^" in sym or len(sym) > 5: continue
-                try: price = float(str(row.get("lastsale", "0")).replace("$", "").replace(",", ""))
-                except: price = 0
-                try: mcap = float(str(row.get("marketCap", "0")).replace(",", ""))
-                except: mcap = 0
+        # Read directly from your local GitHub file
+        df = pd.read_csv("us_stocks.csv")
+        symbols = []
+        
+        for _, row in df.iterrows():
+            sym = str(row.get("Symbol", "")).strip()
+            # Skip empty symbols, preferred shares (^), or warrants
+            if not sym or "/" in sym or "^" in sym or len(sym) > 5: 
+                continue
                 
-                if price >= min_price and mcap >= min_mcap:
-                    symbols.append(sym)
-            offset += limit
+            # Clean the price string (remove '$' and ',')
+            try:
+                price_str = str(row.get("Last Sale", "0")).replace("$", "").replace(",", "")
+                price = float(price_str)
+            except:
+                price = 0
+                
+            # Clean the Market Cap string
+            try:
+                mcap_str = str(row.get("Market Cap", "0")).replace(",", "")
+                mcap = float(mcap_str) if mcap_str.strip() != "" else 0
+            except:
+                mcap = 0
+                
+            # Apply your sidebar filters!
+            if price >= min_price and mcap >= min_mcap:
+                symbols.append(sym)
+                
         return symbols
-    except Exception:
+    except Exception as e:
+        # Emergency Fallback
         return ["AAPL","MSFT","GOOGL","AMZN","NVDA","META","TSLA","JPM","V","UNH"]
 
-@st.cache_data(ttl=3600)
-def fetch_etf_symbols(min_price):
-    headers = {"User-Agent": "Mozilla/5.0"}
-    symbols = []
-    offset, limit = 0, 500
-    try:
-        url = "https://api.nasdaq.com/api/screener/etf?tableonly=true&limit=1"
-        r = requests.get(url, headers=headers, timeout=30)
-        total = r.json().get("data", {}).get("records", {}).get("totalrecords", 0)
 
-        while offset < total:
-            url = f"https://api.nasdaq.com/api/screener/etf?tableonly=true&limit={limit}&offset={offset}"
-            r = requests.get(url, headers=headers, timeout=30)
-            data = r.json().get("data", {}).get("records", {}).get("data", {})
-            rows = data.get("rows", []) if isinstance(data, dict) else []
-            if not rows: break
-            for row in rows:
-                sym = row.get("symbol", "").strip()
-                if not sym or "/" in sym or len(sym) > 6: continue
-                try: price = float(str(row.get("lastSalePrice", "0")).replace("$", "").replace(",", ""))
-                except: price = 0
-                if price >= min_price:
-                    symbols.append(sym)
-            offset += limit
+@st.cache_data
+def fetch_etf_symbols(min_price):
+    try:
+        # Read directly from your local GitHub file
+        df = pd.read_csv("us_etfs.csv")
+        symbols = []
+        
+        for _, row in df.iterrows():
+            sym = str(row.get("Symbol", "")).strip()
+            if not sym or "/" in sym or len(sym) > 6: 
+                continue
+                
+            # Clean the price string (Depending on the CSV format, it might be Last Sale or LastSalePrice)
+            price_val = row.get("Last Sale") if "Last Sale" in df.columns else row.get("LastSalePrice", "0")
+            try:
+                price_str = str(price_val).replace("$", "").replace(",", "")
+                price = float(price_str)
+            except:
+                price = 0
+                
+            # Apply your sidebar filters!
+            if price >= min_price:
+                symbols.append(sym)
+                
         return symbols
-    except Exception:
+    except Exception as e:
+        # Emergency Fallback
         return ["SPY","QQQ","IWM","DIA","VTI","VOO","XLK","XLF","XLE","XLV"]
 
 # -------------------------------------------------------------------
