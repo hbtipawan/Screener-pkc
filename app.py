@@ -14,7 +14,8 @@ warnings.filterwarnings("ignore")
 # Set up the web page
 st.set_page_config(page_title="VPCI Screener Dashboard", layout="wide")
 st.title("VPCI Investor v3 — Weekly Market Screener")
-
+import os
+st.write("Files Streamlit can see:", os.listdir())
 # -------------------------------------------------------------------
 # Data Fetching Functions (Cached to avoid repeated API calls)
 # -------------------------------------------------------------------
