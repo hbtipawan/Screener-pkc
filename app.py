@@ -45,7 +45,7 @@ def get_nse_stock_tickers():
 def fetch_us_symbols(min_price, min_mcap):
     try:
         # Read directly from your local GitHub file
-        df = pd.read_csv("us_stocks.csv")
+        df = pd.read_csv("us_stocks.csv.csv")
         symbols = []
         
         for _, row in df.iterrows():
