@@ -42,54 +42,55 @@ def get_nse_stock_tickers():
 @st.cache_data
 def fetch_us_symbols(min_price, min_mcap):
     try:
-        # Read directly from your local GitHub file
-        df = pd.read_csv("us_stocks.csv")
-        symbols = []
+        # latin-1 encoding bypasses special character crashes, on_bad_lines skips corrupted rows
+        df = pd.read_csv("us_stocks.csv", encoding="latin-1", on_bad_lines="skip")
         
+        # Strip hidden spaces from all column names
+        df.columns = df.columns.str.strip()
+        
+        symbols = []
         for _, row in df.iterrows():
             sym = str(row.get("Symbol", "")).strip()
-            # Skip empty symbols, preferred shares (^), or warrants
             if not sym or "/" in sym or "^" in sym or len(sym) > 5 or sym.lower() == "nan": 
                 continue
                 
-            # Clean the price string
             try:
-                price_str = str(row.get("Last Sale", "0")).replace("$", "").replace(",", "")
+                # Some CSVs use "Last Sale" and some use "LastSale"
+                price_val = row.get("Last Sale", row.get("LastSale", "0"))
+                price_str = str(price_val).replace("$", "").replace(",", "")
                 price = float(price_str)
             except:
                 price = 0
                 
-            # Clean the Market Cap string
             try:
-                mcap_str = str(row.get("Market Cap", "0")).replace(",", "")
+                mcap_val = row.get("Market Cap", row.get("MarketCap", "0"))
+                mcap_str = str(mcap_val).replace(",", "")
                 mcap = float(mcap_str) if mcap_str.strip() != "" and mcap_str.lower() != "nan" else 0
             except:
                 mcap = 0
                 
-            # Apply your sidebar filters!
             if price >= min_price and mcap >= min_mcap:
                 symbols.append(sym)
                 
         return symbols
     except Exception as e:
-        # Emergency Fallback - Now prints the exact error to your screen!
         st.error(f"🚨 Error reading US Stocks CSV: {e}")
         return ["AAPL","MSFT","GOOGL","AMZN","NVDA","META","TSLA","JPM","V","UNH"]
 
 @st.cache_data
 def fetch_etf_symbols(min_price):
     try:
-        # Read directly from your local GitHub file
-        df = pd.read_csv("us_etfs.csv")
-        symbols = []
+        df = pd.read_csv("us_etfs.csv", encoding="latin-1", on_bad_lines="skip")
+        df.columns = df.columns.str.strip()
         
+        symbols = []
         for _, row in df.iterrows():
             sym = str(row.get("Symbol", "")).strip()
             if not sym or "/" in sym or len(sym) > 6 or sym.lower() == "nan": 
                 continue
                 
-            price_val = row.get("Last Sale") if "Last Sale" in df.columns else row.get("LastSalePrice", "0")
             try:
+                price_val = row.get("Last Sale", row.get("LastSalePrice", "0"))
                 price_str = str(price_val).replace("$", "").replace(",", "")
                 price = float(price_str)
             except:
@@ -100,7 +101,6 @@ def fetch_etf_symbols(min_price):
                 
         return symbols
     except Exception as e:
-        # Emergency Fallback - Now prints the exact error to your screen!
         st.error(f"🚨 Error reading US ETFs CSV: {e}")
         return ["SPY","QQQ","IWM","DIA","VTI","VOO","XLK","XLF","XLE","XLV"]
 # -------------------------------------------------------------------
