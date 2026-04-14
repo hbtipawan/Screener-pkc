@@ -39,69 +39,70 @@ def get_nse_stock_tickers():
                 "ADANIENT","COALINDIA","TATASTEEL","JSWSTEEL","HAL","BEL","TRENT",
                 "POLYCAB","PERSISTENT","DIXON","TATAPOWER","IRCTC","PETRONET"]
 
-@st.cache_data
+@st.cache_data(ttl=3600)
 def fetch_us_symbols(min_price, min_mcap):
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*"
+    }
+    symbols = []
+    offset, limit = 0, 500
     try:
-        # latin-1 encoding bypasses special character crashes, on_bad_lines skips corrupted rows
-        df = pd.read_csv("us_stocks.csv", encoding="latin-1", on_bad_lines="skip")
-        
-        # Strip hidden spaces from all column names
-        df.columns = df.columns.str.strip()
-        
-        symbols = []
-        for _, row in df.iterrows():
-            sym = str(row.get("Symbol", "")).strip()
-            if not sym or "/" in sym or "^" in sym or len(sym) > 5 or sym.lower() == "nan": 
-                continue
+        url = "https://api.nasdaq.com/api/screener/stocks?tableonly=true&limit=1&offset=0"
+        r = requests.get(url, headers=headers, timeout=30)
+        total = r.json().get("data", {}).get("totalrecords", 0)
+
+        while offset < total:
+            url = f"https://api.nasdaq.com/api/screener/stocks?tableonly=true&limit={limit}&offset={offset}"
+            r = requests.get(url, headers=headers, timeout=30)
+            rows = r.json().get("data", {}).get("table", {}).get("rows", [])
+            if not rows: break
+            for row in rows:
+                sym = row.get("symbol", "").strip()
+                if not sym or "/" in sym or "^" in sym or len(sym) > 5: continue
+                try: price = float(str(row.get("lastsale", "0")).replace("$", "").replace(",", ""))
+                except: price = 0
+                try: mcap = float(str(row.get("marketCap", "0")).replace(",", ""))
+                except: mcap = 0
                 
-            try:
-                # Some CSVs use "Last Sale" and some use "LastSale"
-                price_val = row.get("Last Sale", row.get("LastSale", "0"))
-                price_str = str(price_val).replace("$", "").replace(",", "")
-                price = float(price_str)
-            except:
-                price = 0
-                
-            try:
-                mcap_val = row.get("Market Cap", row.get("MarketCap", "0"))
-                mcap_str = str(mcap_val).replace(",", "")
-                mcap = float(mcap_str) if mcap_str.strip() != "" and mcap_str.lower() != "nan" else 0
-            except:
-                mcap = 0
-                
-            if price >= min_price and mcap >= min_mcap:
-                symbols.append(sym)
-                
+                if price >= min_price and mcap >= min_mcap:
+                    symbols.append(sym)
+            offset += limit
         return symbols
     except Exception as e:
-        st.error(f"🚨 Error reading US Stocks CSV: {e}")
+        st.error(f"🚨 API Timeout. Retrying later. Error: {e}")
         return ["AAPL","MSFT","GOOGL","AMZN","NVDA","META","TSLA","JPM","V","UNH"]
 
-@st.cache_data
+@st.cache_data(ttl=3600)
 def fetch_etf_symbols(min_price):
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*"
+    }
+    symbols = []
+    offset, limit = 0, 500
     try:
-        df = pd.read_csv("us_etfs.csv", encoding="latin-1", on_bad_lines="skip")
-        df.columns = df.columns.str.strip()
-        
-        symbols = []
-        for _, row in df.iterrows():
-            sym = str(row.get("Symbol", "")).strip()
-            if not sym or "/" in sym or len(sym) > 6 or sym.lower() == "nan": 
-                continue
-                
-            try:
-                price_val = row.get("Last Sale", row.get("LastSalePrice", "0"))
-                price_str = str(price_val).replace("$", "").replace(",", "")
-                price = float(price_str)
-            except:
-                price = 0
-                
-            if price >= min_price:
-                symbols.append(sym)
-                
+        url = "https://api.nasdaq.com/api/screener/etf?tableonly=true&limit=1"
+        r = requests.get(url, headers=headers, timeout=30)
+        total = r.json().get("data", {}).get("records", {}).get("totalrecords", 0)
+
+        while offset < total:
+            url = f"https://api.nasdaq.com/api/screener/etf?tableonly=true&limit={limit}&offset={offset}"
+            r = requests.get(url, headers=headers, timeout=30)
+            data = r.json().get("data", {}).get("records", {}).get("data", {})
+            rows = data.get("rows", []) if isinstance(data, dict) else []
+            if not rows: break
+            for row in rows:
+                sym = row.get("symbol", "").strip()
+                if not sym or "/" in sym or len(sym) > 6: continue
+                try: price = float(str(row.get("lastSalePrice", "0")).replace("$", "").replace(",", ""))
+                except: price = 0
+                if price >= min_price:
+                    symbols.append(sym)
+            offset += limit
         return symbols
     except Exception as e:
-        st.error(f"🚨 Error reading US ETFs CSV: {e}")
+        st.error(f"🚨 API Timeout. Retrying later. Error: {e}")
         return ["SPY","QQQ","IWM","DIA","VTI","VOO","XLK","XLF","XLE","XLV"]
 # -------------------------------------------------------------------
 # Processing Worker
