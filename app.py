@@ -80,7 +80,7 @@ def fetch_us_symbols(min_price, min_mcap):
 def fetch_etf_symbols(min_price):
     try:
         # Read directly from your local GitHub file
-        df = pd.read_csv("us_etfs.csv")
+        df = pd.read_csv("us_etf.csv")
         symbols = []
         
         for _, row in df.iterrows():
